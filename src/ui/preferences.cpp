@@ -59,10 +59,10 @@ bool valid(const Preferences& p) {
         std::isfinite(p.background_opacity) && p.background_opacity>=0 && p.background_opacity<=1 &&
         p.chart_column_measures>=1 && p.chart_column_measures<=12 &&
         (p.language==i18n::Language::English || p.language==i18n::Language::Chinese) && valid_overlay_key(p.hotkey.key) &&
-        // 🌟 校验新增枚举
-        (p.autoplay_upload_policy == AutoplayUploadPolicy::AutoAndUpload || 
-         p.autoplay_upload_policy == AutoplayUploadPolicy::AutoNoUpload || 
-         p.autoplay_upload_policy == AutoplayUploadPolicy::ManualAndUpload);
+        // 🌟 校验枚举值
+        (p.autoplay_upload_mode == AutoplayUploadMode::AutoAndUpload || 
+         p.autoplay_upload_mode == AutoplayUploadMode::AutoNoUpload || 
+         p.autoplay_upload_mode == AutoplayUploadMode::ManualAndUpload);
 }
 }
 
@@ -136,12 +136,12 @@ bool PreferencesStore::load(const std::filesystem::path& path,std::string& error
             if(field) value_.chart_column_measures=static_cast<int>(measures);
         }
         else if(section=="chartview" && key=="followplayback") field=boolean(text,value_.follow_playback);
-        // 🌟 新增：读取 [Training] 段的策略
-        else if(section=="training" && key=="autoplayuploadpolicy") {
-            int policy{};
-            const auto result=std::from_chars(text.data(),text.data()+text.size(),policy);
-            field=result.ec==std::errc{} && result.ptr==text.data()+text.size() && policy>=0 && policy<=2;
-            if(field) value_.autoplay_upload_policy=static_cast<AutoplayUploadPolicy>(policy);
+        // 🌟 新增读取逻辑
+        else if(section=="training" && key=="autoplayuploadmode") {
+            int mode{};
+            const auto result=std::from_chars(text.data(),text.data()+text.size(),mode);
+            field=result.ec==std::errc{} && result.ptr==text.data()+text.size() && mode>=0 && mode<=2;
+            if(field) value_.autoplay_upload_mode=static_cast<AutoplayUploadMode>(mode);
         }
         
         if(!field) { ok=false; error="Invalid INI setting: "+section+"."+key+" (using default/previous valid value)"; }
@@ -166,8 +166,8 @@ bool PreferencesStore::write(const Preferences& value,std::string& error) {
            <<"\nAlwaysShowJudgmentCounter="<<value.always_show_judgment_counter
            <<"\n\n[ChartView]\nDefaultColumnMeasures="<<value.chart_column_measures
            <<"\nFollowPlayback="<<value.follow_playback
-           // 🌟 新增：写入 [Training] 段
-           <<"\n\n[Training]\nAutoplayUploadPolicy="<<static_cast<int>(value.autoplay_upload_policy)<<'\n';
+           // 🌟 新增写入逻辑
+           <<"\n\n[Training]\nAutoplayUploadMode="<<static_cast<int>(value.autoplay_upload_mode)<<'\n';
         out.flush();
         if(!out) { out.close(); DeleteFileW(temporary.c_str()); error="Cannot write trainingmaster.ini"; return false; }
     }
