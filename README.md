@@ -47,7 +47,7 @@ UI design by human
 
 ## Plan
 
-- [ ] WebUI 
+- [x] WebUI 
 - [x] Judgement Counter 
 - [x] Playback Rate Upper To 2.0x
 - [x] Autoplay can set separately for button or tsumami
