@@ -2,6 +2,7 @@
 #include "core/autoplay_mode.hpp"
 #include "core/playback_rate.hpp"
 #include "platform/log.hpp"
+#include "ui/preferences.hpp"
 
 #include <httplib.h>
 
@@ -13,7 +14,7 @@
 namespace training::web {
 namespace {
 
-// ---------- 简易 JSON 工具（不依赖 nlohmann） ----------
+// ---------- 简易 JSON 工具 ----------
 std::string json_escape(const std::string& s) {
     std::string out;
     out.reserve(s.size() + 8);
@@ -55,6 +56,8 @@ std::string state_to_json(const State& s) {
       << "\"rate\":" << s.rate << ','
       << "\"autoplay\":" << s.autoplay << ','
       << "\"autoplay_mode\":" << static_cast<int>(s.autoplay_mode) << ','
+      // 🌟 新增：前端读取当前策略
+      << "\"upload_mode\":" << static_cast<int>(preferences().snapshot().autoplay_upload_mode) << ','
       << "\"lane_speed_locked\":" << s.lane_speed_locked << ','
       << "\"camera_locked\":" << s.camera_locked << ','
       << "\"hide_song_visuals\":" << s.hide_song_visuals << ','
@@ -89,7 +92,6 @@ bool parse_action(const std::string& name, Action& out) {
     return false;
 }
 
-// 极简 JSON 字段提取（只处理我们自己发的扁平对象）
 bool extract_string(const std::string& body, const char* key, std::string& out) {
     const std::string pattern = std::string("\"") + key + "\"";
     auto pos = body.find(pattern);
@@ -150,102 +152,24 @@ body {
   line-height: 1.4;
   -webkit-tap-highlight-color: transparent;
 }
-h1 {
-  font-size: 1.15rem;
-  color: var(--accent);
-  margin-bottom: 4px;
-  letter-spacing: 0.02em;
-}
-.sub {
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: 14px;
-}
-.card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px;
-  margin-bottom: 12px;
-}
-.card h2 {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--accent);
-  margin-bottom: 10px;
-}
-.status {
-  font-size: 13px;
-  color: var(--muted);
-  min-height: 1.2em;
-  margin-bottom: 6px;
-}
-.chart {
-  font-size: 13px;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-bottom: 8px;
-}
-.pos {
-  font-variant-numeric: tabular-nums;
-  font-size: 1.55rem;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-input[type=range] {
-  width: 100%;
-  accent-color: var(--accent);
-  margin: 6px 0 10px;
-}
-.row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-button {
-  flex: 1 1 auto;
-  min-width: 72px;
-  background: #1a262e;
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 11px 10px;
-  font-size: 14px;
-  cursor: pointer;
-  user-select: none;
-}
+h1 { font-size: 1.15rem; color: var(--accent); margin-bottom: 4px; letter-spacing: 0.02em; }
+.sub { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
+.card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); margin-bottom: 10px; }
+.status { font-size: 13px; color: var(--muted); min-height: 1.2em; margin-bottom: 6px; }
+.chart { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 8px; }
+.pos { font-variant-numeric: tabular-nums; font-size: 1.55rem; font-weight: 600; margin-bottom: 8px; }
+input[type=range] { width: 100%; accent-color: var(--accent); margin: 6px 0 10px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; }
+button { flex: 1 1 auto; min-width: 72px; background: #1a262e; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 11px 10px; font-size: 14px; cursor: pointer; user-select: none; }
 button:active { transform: scale(0.97); }
-button.on {
-  background: var(--accent-dim);
-  border-color: var(--accent);
-  color: #06120f;
-  font-weight: 600;
-}
-button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #06120f;
-  font-weight: 700;
-}
-button.danger {
-  background: #3a1e1e;
-  border-color: #5a3030;
-  color: var(--danger);
-}
-.rate-val {
-  font-variant-numeric: tabular-nums;
-  color: var(--accent);
-  font-weight: 600;
-}
-.hint {
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 8px;
-}
+button.on { background: var(--accent-dim); border-color: var(--accent); color: #06120f; font-weight: 600; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #06120f; font-weight: 700; }
+button.danger { background: #3a1e1e; border-color: #5a3030; color: var(--danger); }
+.rate-val { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; }
+.hint { font-size: 11px; color: var(--muted); margin-top: 8px; }
 .offline { color: var(--danger); }
+select { width: 100%; background: #1a262e; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 14px; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -286,9 +210,18 @@ button.danger {
   </div>
 
   <div class="card">
+    <h2>Autoplay 与上传策略 (三档)</h2>
+    <select id="sel-mode">
+      <option value="0">Auto + 上传成绩 (测试)</option>
+      <option value="1">Auto + 不上传成绩 (训练)</option>
+      <option value="2">Manual (关闭 Auto) + 上传成绩</option>
+    </select>
+  </div>
+
+  <div class="card">
     <h2>功能</h2>
     <div class="row">
-      <button id="btn-autoplay">AutoPlay</button>
+      <button id="btn-autoplay" style="display:none">AutoPlay (由上方策略控制)</button>
       <button id="btn-lane">锁流速</button>
       <button id="btn-camera">锁镜头</button>
     </div>
@@ -337,10 +270,12 @@ async function refresh() {
     $('btn-pause').textContent = state.paused ? '继续' : '暂停';
     setOn($('btn-pause'), !!state.paused);
     setOn($('btn-loop'), !!state.loop);
-    setOn($('btn-autoplay'), !!state.autoplay);
     setOn($('btn-lane'), !!state.lane_speed_locked);
     setOn($('btn-camera'), !!state.camera_locked);
     setOn($('btn-visuals'), !!state.hide_song_visuals);
+    
+    // 更新下拉框状态
+    $('sel-mode').value = state.upload_mode;
   } catch (e) {
     $('msg').textContent = '连接失败 · 请确认游戏已启动且 WebUI 已开启';
     $('msg').classList.add('offline');
@@ -355,19 +290,28 @@ function cmd(action, value = 0) {
   }).then(() => setTimeout(refresh, 80));
 }
 
+function set_mode(mode) {
+  fetch('/api/upload_mode', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode })
+  }).then(() => setTimeout(refresh, 80));
+}
+
 $('btn-enable').onclick = () => cmd(state.enabled ? 'Disable' : 'Enable');
 $('btn-pause').onclick = () => cmd(state.paused ? 'Resume' : 'Pause');
 $('btn-loop').onclick = () => cmd('CycleLoop');
 $('btn-in').onclick = () => cmd('SetIn', state.position || 0);
 $('btn-out').onclick = () => cmd('SetOut', state.position || 0);
 $('btn-restart').onclick = () => cmd('ReturnToStart');
-$('btn-autoplay').onclick = () => cmd('SetAutoplay', state.autoplay ? 0 : 1);
 $('btn-lane').onclick = () => cmd('SetLaneSpeedLocked', state.lane_speed_locked ? 0 : 1);
 $('btn-camera').onclick = () => cmd('SetCameraLocked', state.camera_locked ? 0 : 1);
 $('btn-visuals').onclick = () => cmd('SetHideSongVisuals', state.hide_song_visuals ? 0 : 1);
 $('btn-finish').onclick = () => {
   if (confirm('确定立即结束本曲？')) cmd('Finish');
 };
+
+$('sel-mode').addEventListener('change', e => set_mode(+e.target.value));
 
 $('seek').addEventListener('pointerdown', () => { seeking = true; });
 $('seek').addEventListener('pointerup', e => {
@@ -447,7 +391,6 @@ void Server::run() {
             return;
         }
 
-        // 简单范围保护
         if (action == Action::SetRate) {
             if (value < min_playback_rate) value = min_playback_rate;
             if (value > max_playback_rate) value = max_playback_rate;
@@ -458,18 +401,31 @@ void Server::run() {
         res.set_content(R"({"ok":true})", "application/json");
     });
 
+    // 🌟 新增：修改三档开关的 API
+    svr.Post("/api/upload_mode", [](const httplib::Request& req, httplib::Response& res) {
+        float mode_val;
+        if (extract_number(req.body, "mode", mode_val)) {
+            auto prefs = training::preferences().snapshot();
+            prefs.autoplay_upload_mode = static_cast<training::AutoplayUploadMode>(static_cast<int>(mode_val));
+            std::string err;
+            training::preferences().save(prefs, err);
+            res.set_content(R"({"ok":true})", "application/json");
+        } else {
+            res.status = 400; 
+            res.set_content(R"({"ok":false,"error":"missing mode"})", "application/json");
+        }
+    });
+
     svr.Get("/", [](const httplib::Request&, httplib::Response& res) {
         res.set_content(kIndexHtml, "text/html; charset=utf-8");
     });
 
-    // 健康检查
     svr.Get("/api/ping", [](const httplib::Request&, httplib::Response& res) {
         res.set_content(R"({"ok":true,"name":"Training Master WebUI"})", "application/json");
     });
 
     running_ = true;
     log(std::string("WebUI listening on http://") + listen_address() + " (LAN accessible)");
-    // 绑定所有网卡
     const bool ok = svr.listen("0.0.0.0", port_);
     if (!ok && should_run_) {
         log("WebUI failed to bind port " + std::to_string(port_));
@@ -480,7 +436,6 @@ void Server::run() {
 void Server::start() {
     if (running_ || should_run_) return;
     should_run_ = true;
-    // 重新创建 server，避免上次 stop 后状态残留
     impl_ = std::make_unique<Impl>();
     thread_ = std::make_unique<std::thread>([this] { run(); });
 }
@@ -497,18 +452,13 @@ void Server::stop() {
     running_ = false;
 }
 
-// ---------- 全局 ----------
 Server& web_server() {
-    // 延迟构造需要 Session 引用，真正初始化在 initialize_web_server
     static Server* instance = nullptr;
-    // 这里只做访问；initialize 时赋值
-    // 为了简单，用函数内静态 + 指针
     struct Holder {
         std::unique_ptr<Server> ptr;
     };
     static Holder holder;
     if (!holder.ptr) {
-        // 占位，真正 start 前必须 initialize
         throw std::runtime_error("web_server not initialized");
     }
     return *holder.ptr;

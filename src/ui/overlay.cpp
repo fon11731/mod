@@ -678,6 +678,19 @@ void draw_options(Session& session,bool focus=false) {
         value.background_opacity=opacity_percent*.01f; changed=true;
     }
 
+    // 🌟 新增：三档开关
+    section("Autoplay & Upload Policy");
+    int policy = static_cast<int>(value.autoplay_upload_mode);
+    if (ImGui::RadioButton("Auto + Upload", &policy, 0)) {
+        value.autoplay_upload_mode = AutoplayUploadMode::AutoAndUpload; changed = true;
+    }
+    if (ImGui::RadioButton("Auto + No Upload", &policy, 1)) {
+        value.autoplay_upload_mode = AutoplayUploadMode::AutoNoUpload; changed = true;
+    }
+    if (ImGui::RadioButton("Manual + Upload", &policy, 2)) {
+        value.autoplay_upload_mode = AutoplayUploadMode::ManualAndUpload; changed = true;
+    }
+
     section("Judgment counter");
     changed|=ImGui::Checkbox(i18n::label("Always show judgment counter"),&value.always_show_judgment_counter);
 
@@ -877,15 +890,24 @@ void draw_settings(Session& session,const State& s) {
     auto send=[&](Action action,float value=0.f){session.submit({s.generation,action,value});};
     section("Setting");
     ImGui::BeginDisabled(!s.enabled);
-    bool automatic=s.autoplay;
+    
+    // 🌟 修改：Autoplay 的状态现在由选项里的三档开关强控制，这里做只读显示
+    const auto mode = preferences().snapshot().autoplay_upload_mode;
+    const bool force_autoplay = (mode == AutoplayUploadMode::AutoAndUpload || mode == AutoplayUploadMode::AutoNoUpload);
+    
     ImGui::BeginDisabled(!s.ready || !s.track.autoplay_ready);
-    if (ImGui::Checkbox(i18n::label("AutoPlay"),&automatic)) send(Action::SetAutoplay,automatic?1.f:0.f);
+    // 复选框只读绑定 force_autoplay
+    bool automatic = force_autoplay;
+    if (ImGui::Checkbox(i18n::label("AutoPlay (Policy)"), &automatic)) {
+        // 如果用户手动点，不作处理，引导去 Option 里改
+    }
     ImGui::SameLine(); ImGui::SetNextItemWidth(-1.f);
     int autoplay_mode=static_cast<int>(s.autoplay_mode);
     const char* autoplay_modes[]={i18n::text("All"),i18n::text("Buttons only"),i18n::text("Knobs only")};
     if(ImGui::Combo("##autoplay-mode",&autoplay_mode,autoplay_modes,3))
         send(Action::SetAutoplayMode,static_cast<float>(autoplay_mode));
     ImGui::EndDisabled();
+    
     bool lane_speed_locked=s.lane_speed_locked;
     ImGui::BeginDisabled(!s.ready || !s.track.lane_speed_ready);
     if (ImGui::Checkbox(i18n::label("Fix Lane Speed"),&lane_speed_locked)) send(Action::SetLaneSpeedLocked,lane_speed_locked?1.f:0.f);

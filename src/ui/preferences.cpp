@@ -58,9 +58,14 @@ bool valid(const Preferences& p) {
     return std::isfinite(p.loop_before) && p.loop_before>=0 && std::isfinite(p.loop_after) && p.loop_after>=0 &&
         std::isfinite(p.background_opacity) && p.background_opacity>=0 && p.background_opacity<=1 &&
         p.chart_column_measures>=1 && p.chart_column_measures<=12 &&
-        (p.language==i18n::Language::English || p.language==i18n::Language::Chinese) && valid_overlay_key(p.hotkey.key);
+        (p.language==i18n::Language::English || p.language==i18n::Language::Chinese) && valid_overlay_key(p.hotkey.key) &&
+        // 🌟 校验新增枚举
+        (p.autoplay_upload_policy == AutoplayUploadPolicy::AutoAndUpload || 
+         p.autoplay_upload_policy == AutoplayUploadPolicy::AutoNoUpload || 
+         p.autoplay_upload_policy == AutoplayUploadPolicy::ManualAndUpload);
 }
 }
+
 bool valid_overlay_key(unsigned key) {
     return key==VK_BACK || key==VK_TAB || key==VK_RETURN || key==VK_PAUSE || key==VK_CAPITAL ||
         (key>=VK_SPACE && key<=VK_DOWN) || (key>=VK_SNAPSHOT && key<=VK_HELP) ||
@@ -85,7 +90,9 @@ std::string hotkey_name(const OverlayHotkey& key) {
     } else result+=key_token(key.key);
     return result;
 }
+
 Preferences PreferencesStore::snapshot() const { std::lock_guard lock(mutex_); return value_; }
+
 bool PreferencesStore::load(const std::filesystem::path& path,std::string& error) {
     std::lock_guard lock(mutex_); error.clear(); path_=path; value_={};
     std::error_code ec;
@@ -104,6 +111,7 @@ bool PreferencesStore::load(const std::filesystem::path& path,std::string& error
         const auto split=line.find('='); if(split==line.npos) continue;
         const auto key=lower(trim(std::string_view(line).substr(0,split)));
         const auto text=trim(std::string_view(line).substr(split+1)); bool field=true;
+        
         if(section=="loop" && key=="startbufferseconds") field=number(text,value_.loop_before);
         else if(section=="loop" && key=="endbufferseconds") field=number(text,value_.loop_after);
         else if(section=="overlay" && key=="togglekey") field=parse_key(text,value_.hotkey.key);
@@ -128,11 +136,20 @@ bool PreferencesStore::load(const std::filesystem::path& path,std::string& error
             if(field) value_.chart_column_measures=static_cast<int>(measures);
         }
         else if(section=="chartview" && key=="followplayback") field=boolean(text,value_.follow_playback);
+        // 🌟 新增：读取 [Training] 段的策略
+        else if(section=="training" && key=="autoplayuploadpolicy") {
+            int policy{};
+            const auto result=std::from_chars(text.data(),text.data()+text.size(),policy);
+            field=result.ec==std::errc{} && result.ptr==text.data()+text.size() && policy>=0 && policy<=2;
+            if(field) value_.autoplay_upload_policy=static_cast<AutoplayUploadPolicy>(policy);
+        }
+        
         if(!field) { ok=false; error="Invalid INI setting: "+section+"."+key+" (using default/previous valid value)"; }
     }
     if(input.bad()) { error="Cannot finish reading trainingmaster.ini"; return false; }
     return ok;
 }
+
 bool PreferencesStore::write(const Preferences& value,std::string& error) {
     if(path_.empty()) { error="Configuration path is not initialized"; return false; }
     auto temporary=path_; temporary+=L".tmp."+std::to_wstring(GetCurrentProcessId());
@@ -148,7 +165,9 @@ bool PreferencesStore::write(const Preferences& value,std::string& error) {
            <<"\nBackgroundOpacity="<<value.background_opacity
            <<"\nAlwaysShowJudgmentCounter="<<value.always_show_judgment_counter
            <<"\n\n[ChartView]\nDefaultColumnMeasures="<<value.chart_column_measures
-           <<"\nFollowPlayback="<<value.follow_playback<<'\n';
+           <<"\nFollowPlayback="<<value.follow_playback
+           // 🌟 新增：写入 [Training] 段
+           <<"\n\n[Training]\nAutoplayUploadPolicy="<<static_cast<int>(value.autoplay_upload_policy)<<'\n';
         out.flush();
         if(!out) { out.close(); DeleteFileW(temporary.c_str()); error="Cannot write trainingmaster.ini"; return false; }
     }
@@ -158,13 +177,16 @@ bool PreferencesStore::write(const Preferences& value,std::string& error) {
     }
     return true;
 }
+
 bool PreferencesStore::save(const Preferences& value,std::string& error) {
     std::lock_guard lock(mutex_); error.clear();
     if(!valid(value)) { error="Buffers must be non-negative, opacity must be 0-1, column count must be 1-12 measures; choose a valid keyboard key"; return false; }
     if(!write(value,error)) return false;
     value_=value; return true;
 }
+
 PreferencesStore& preferences() { static PreferencesStore store; return store; }
+
 bool initialize_preferences(HMODULE module,std::string& error) {
     wchar_t path[32768]{};
     const auto size=GetModuleFileNameW(module,path,32768);

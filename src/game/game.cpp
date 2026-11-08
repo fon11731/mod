@@ -14,6 +14,7 @@
 #include "game/gauge.hpp"
 #include "game/judgment_filter.hpp"
 #include "game/game_input.hpp"
+#include "ui/preferences.hpp" // 🌟 确保引入了 preferences
 #include <MinHook.h>
 #include <atomic>
 #include <algorithm>
@@ -388,8 +389,13 @@ void __fastcall world_update_hook(Ptr world) {
     suppress_song_visuals=control.playing && control.enabled && control.hide_song_visuals;
     judgment_recording=active && world==current_world && control.playing && !control.paused && !control.rewinding && !control.reversing;
     judgment_region={active && world==current_world && control.enabled && control.loop,control.in,control.out};
-    const bool automatic=active && world==current_world && control.playing && control.enabled && control.autoplay &&
+    
+    // 🌟 修改：强制根据策略开启或关闭 Autoplay
+    const auto mode = preferences().snapshot().autoplay_upload_mode;
+    const bool force_autoplay = (mode == AutoplayUploadMode::AutoAndUpload || mode == AutoplayUploadMode::AutoNoUpload);
+    const bool automatic=active && world==current_world && control.playing && control.enabled && force_autoplay &&
         !control.reversing && !control.rewinding && supported(world);
+    
     if (automatic) mark_tainted(world);
     if (active && world==current_world && autoplay_ready) autoplay::update(world,automatic,original_world_update,control.autoplay_mode);
     else original_world_update(world);
@@ -433,8 +439,6 @@ void __fastcall world_update_hook(Ptr world) {
 }
 void __fastcall input_check_update_hook(Ptr checker) {
     const auto world=updating_world;
-    // +312 is the world's shared force-crash checker, in the stable world
-    // prefix. Match the exact object so other scenes keep their native input.
     const bool owned=input_device_slot && world && world==current_world &&
         field<Ptr>(world,312)==checker && session.native_exit_locked();
     if(!update_game_input_check(original_input_check_update,checker,input_check_vtable,owned)) {
@@ -446,8 +450,6 @@ void __fastcall input_check_update_hook(Ptr checker) {
     }
 }
 char __fastcall play_state_hook(Ptr world) {
-    // The timer already ran this frame. Intercept here before native play state
-    // checks all-failed, adds clear time or queues its failure/auto-retry scenes.
     if(world==current_world) suppress_native_finish(image,world,session.native_exit_locked());
     if(world==current_world && !field<std::uint8_t>(world,native::world_layout().forced_end) && supported(world)) {
         GameBackend backend(world);
@@ -498,13 +500,10 @@ bool __fastcall song_post_render_hook(Ptr effect) {
 void __fastcall camera_update_hook(Ptr updater) {
     original_camera_update(updater);
     const auto world=updating_world;
-    // The same updater is also used by previews/other worlds. Match its renderer.
     if (!world || world!=current_world || field<Ptr>(updater,24)!=field<Ptr>(world,native::world_layout().renderer)) return;
     camera_updated=true;
     const bool locked=field<Ptr>(world,24)==image+native::addresses().play_state &&
         session.camera_requested() && supported(world);
-    // Native initialization registers AngleUpdater, then CameraUpdater, then the
-    // lane/cursor/bomb views. Lock here before those views generate vertices.
     if (!camera_control.after_update(world,locked) && !camera_reported) {
         camera_reported=true; session.camera_unavailable();
         log("Camera pose capture failed; camera control disabled for this track");
@@ -597,8 +596,6 @@ Ptr __fastcall judge_hook(Ptr referee,Ptr output,Ptr note,float time) {
 bool __fastcall note_gate_hook(Ptr referee,Ptr note) {
     return autoplay::note_gate(original_note_gate,referee,note);
 }
-// The game's score callback receives the same 40-byte JudgeResult for manual
-// and automatic play. Never alter the record or the callback's return value.
 Ptr __fastcall judgment_event_hook(Ptr context,Ptr output,Ptr note,Ptr result,float time) {
     const bool owned=updating_world && updating_world==current_world;
     bool suppressed=false;
@@ -630,12 +627,10 @@ void __fastcall timer_update_hook(Ptr timer) {
     LARGE_INTEGER now{}; QueryPerformanceCounter(&now);
     const double elapsed=last_qpc.QuadPart?static_cast<double>(now.QuadPart-last_qpc.QuadPart)/static_cast<double>(frequency.QuadPart):0.;
     if (state.enabled && field<std::uint8_t>(timer,16) && last_qpc.QuadPart) {
-        // Original code samples QPC itself. Correct its accumulated duration before
-        // it updates the public float clock and invokes all five listener groups.
         field<std::int64_t>(timer,24)+=static_cast<std::int64_t>(elapsed*(state.rate-1.f)*1e9);
         const auto draw=field<Ptr>(world,248);
         if (draw && field<Ptr>(draw,0)==image+native::addresses().draw_timer_vtable)
-            field<std::uint8_t>(draw,40)=1; // Disable its real-time extrapolation for this frame.
+            field<std::uint8_t>(draw,40)=1; 
     }
     last_qpc=now;
     original_timer_update(timer);
@@ -668,9 +663,6 @@ void __fastcall destroy_hook(Ptr world) {
     consumed_worlds.erase(world);
 }
 bool __fastcall request_next_hook(Ptr scene,Ptr argument) {
-    // Refresh selection/scene warnings before a GameWorld exists. Active
-    // worlds publish from their update instead, avoiding reentrant session
-    // changes if native transport callbacks request another scene.
     if(!updating_world && !current_world)
         publish_training_access(training_mode_allowed(field<int>(image,native::addresses().game_mode))?
             TrainingAccess::Allowed:TrainingAccess::UnsupportedMode,0);
@@ -680,6 +672,13 @@ bool __fastcall request_next_hook(Ptr scene,Ptr argument) {
         log("Captured music-select route: scene="+std::to_string(music_select_route.process_id)+
             " next="+std::to_string(music_select_route.next_id)+" parent="+std::to_string(music_select_route.parent_id));
     }
+    
+    // 🌟 新增：如果允许上传，直接放行原生跳转
+    const auto mode = preferences().snapshot().autoplay_upload_mode;
+    if (mode == AutoplayUploadMode::AutoAndUpload || mode == AutoplayUploadMode::ManualAndUpload) {
+        return original_request_next(scene,argument);
+    }
+
     if (table==image+native::addresses().alternative_scene_vtable) {
         const auto world=field<Ptr>(scene,416);
         if(world && is_tainted(world) && session.native_exit_locked()) return false;
@@ -693,6 +692,11 @@ bool __fastcall request_next_hook(Ptr scene,Ptr argument) {
     return original_request_next(scene,argument);
 }
 bool __fastcall collect_hook(Ptr world) {
+    const auto mode = preferences().snapshot().autoplay_upload_mode;
+    if (mode == AutoplayUploadMode::AutoAndUpload || mode == AutoplayUploadMode::ManualAndUpload) {
+        return original_collect(world); // 直接放行成绩收集
+    }
+    
     if (is_tainted(world)) {
         if(session.native_exit_locked()) { session.result_blocked(); return false; }
         if (!consumed_worlds.contains(world)) {
@@ -711,9 +715,7 @@ bool __fastcall collect_hook(Ptr world) {
             consumed_worlds.insert(world);
             log("Practice consumed stage "+std::to_string(field<int>(data,32))+"; no scored result collected");
         }
-        //session.result_blocked();
-        //log("Practice score/stat/reward collection blocked; bookkeeping excluded from upload");
-        //return false;
+        return false; // 拦截成绩
     }
     return original_collect(world);
 }
@@ -739,7 +741,6 @@ void flush_vocoder(Ptr feeder) {
     }
 }
 std::uint32_t __fastcall feed_hook(Ptr feeder,void* out,std::uint32_t size) {
-    // This build constructs one TimeStretchAudioFeeder for the music bus.
     thread_local Ptr seen_feeder{};
     thread_local float applied=1.f;
     thread_local std::uint64_t flushed{};

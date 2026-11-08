@@ -1,5 +1,6 @@
 #include "game/game_policy.hpp"
 #include "native/profile.hpp"
+#include "ui/preferences.hpp" // 🌟 引入配置
 #include <windows.h>
 namespace training {
 namespace {
@@ -30,6 +31,12 @@ bool prepare_training_finish(std::uintptr_t image,std::uintptr_t world) {
     __try {
         const auto& a=native::addresses();
         if(!world || !a.quiet_exit_state || at<std::uintptr_t>(world,0)!=image+a.world_vtable) return false;
+        
+        // 🌟 新增：检查配置，允许上传则放行
+        auto mode = preferences().snapshot().autoplay_upload_mode;
+        if (mode == AutoplayUploadMode::AutoAndUpload || mode == AutoplayUploadMode::ManualAndUpload) {
+            return false;
+        }
         // The native World Update commits this pending state after Timer Update.
         // Queue its final cleanup, bypassing the presentation-only state and the
         // play-state branch that emits Track Crash/Complete banners and sounds.
@@ -44,6 +51,11 @@ bool prepare_training_finish(std::uintptr_t image,std::uintptr_t world) {
 }
 bool suppress_native_finish(std::uintptr_t image,std::uintptr_t world,bool exit_locked) {
     if(!exit_locked) return false;
+    // 🌟 新增：检查配置，允许上传则放行
+    auto mode = preferences().snapshot().autoplay_upload_mode;
+    if (mode == AutoplayUploadMode::AutoAndUpload || mode == AutoplayUploadMode::ManualAndUpload) {
+        return false;
+    }
     __try {
         if(!world || at<std::uintptr_t>(world,0)!=image+native::addresses().world_vtable) return false;
         auto& flag=at<std::uint8_t>(world,native::world_layout().forced_end);
