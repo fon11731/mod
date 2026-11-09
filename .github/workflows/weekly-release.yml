@@ -1,0 +1,141 @@
+name: Weekly Release
+
+on:
+  schedule:
+    # 每周日 04:00 UTC = 北京时间周日中午 12:00
+    # 分钟用 4 而非 0，降低 GitHub 整点调度延迟的概率
+    - cron: '5 4 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # 创建 Release 必需
+
+concurrency:
+  group: weekly-release
+  cancel-in-progress: false
+
+jobs:
+  weekly-release:
+    name: Weekly check & release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0      # 需要完整历史来解析 tag 对应的 commit
+          fetch-tags: true    # 确保所有 tag 都拉下来
+
+      # ---------- 1. 更新检测 ----------
+      - name: Check for new commits since last release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LATEST_TAG=$(gh release list --repo "${{ github.repository }}" --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)
+          if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" = "null" ]; then
+            echo "No previous release found. Will create first release."
+            echo "has_new=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # 用 git rev-list 解引用 annotated tag，拿到真正的 commit SHA
+          LATEST_SHA=$(git rev-list -n 1 "$LATEST_TAG" 2>/dev/null || true)
+          HEAD_SHA=$(git rev-parse HEAD)
+          echo "Latest release tag:    $LATEST_TAG"
+          echo "Latest release commit: $LATEST_SHA"
+          echo "HEAD commit:           $HEAD_SHA"
+          if [ -z "$LATEST_SHA" ]; then
+            echo "Could not resolve latest release commit; treating as new."
+            echo "has_new=true" >> "$GITHUB_OUTPUT"
+          elif [ "$LATEST_SHA" != "$HEAD_SHA" ]; then
+            echo "New commits detected since $LATEST_TAG."
+            echo "has_new=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No new commits since $LATEST_TAG. Skipping."
+            echo "has_new=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ---------- 2. 构建（复用 build.yml 的逻辑） ----------
+      - name: Test build wrapper
+        if: steps.check.outputs.has_new == 'true'
+        run: cmake -P tests/build_script_tests.cmake
+
+      - name: Install LLVM MinGW
+        if: steps.check.outputs.has_new == 'true'
+        run: |
+          archive=llvm-mingw-20261020-ucrt-ubuntu-22.04-x86_64.tar.xz
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/$archive" \
+            "https://github.com/mstorsjo/llvm-mingw/releases/download/20261020/$archive"
+          echo "55064b60b991a1e1e8090b8c2f84e82b22cfe5903d12c159d65064cf5e8ae335  $RUNNER_TEMP/$archive" | sha256sum --check
+          tar -xf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/llvm-mingw-20261020-ucrt-ubuntu-22.04-x86_64/bin" >> "$GITHUB_PATH"
+
+      - name: Build Windows x64
+        if: steps.check.outputs.has_new == 'true'
+        run: bash build.sh
+
+      - name: Verify Windows DLL
+        if: steps.check.outputs.has_new == 'true'
+        run: |
+          llvm-readobj --file-headers build-linux-cross/trainingmaster.dll > "$RUNNER_TEMP/dll-headers.txt"
+          grep -q 'IMAGE_FILE_MACHINE_AMD64' "$RUNNER_TEMP/dll-headers.txt"
+          llvm-readobj --coff-imports build-linux-cross/trainingmaster.dll > "$RUNNER_TEMP/dll-imports.txt"
+          if grep -Ei 'Name: (libc\+\+|libunwind|libwinpthread).*\.dll' "$RUNNER_TEMP/dll-imports.txt"; then
+            echo 'The DLL unexpectedly depends on LLVM MinGW runtime DLLs.' >&2
+            exit 1
+          fi
+
+      - name: Prepare runtime package
+        if: steps.check.outputs.has_new == 'true'
+        run: |
+          for file in build-linux-cross/trainingmaster.dll trainingmaster.ini; do
+            test -f "$file" || { echo "Runtime package is missing $file" >&2; exit 1; }
+          done
+          mkdir -p dist/slim
+          cp build-linux-cross/trainingmaster.dll trainingmaster.ini dist/slim/
+
+      # ---------- 3. 决定 Release tag ----------
+      - name: Determine release tag
+        if: steps.check.outputs.has_new == 'true'
+        id: tag
+        run: |
+          # 如果当前 HEAD 上已经有 v* tag（比如手动发的版本），直接用它
+          HEAD_TAG=$(git tag --points-at HEAD --list 'v*' | head -n1)
+          if [ -n "$HEAD_TAG" ]; then
+            echo "Using existing tag on HEAD: $HEAD_TAG"
+            echo "tag=$HEAD_TAG" >> "$GITHUB_OUTPUT"
+          else
+            # 否则生成日期版本，附带 run_number 避免同一天多次运行冲突
+            NEW_TAG="v$(date -u +%Y.%m.%d)-${{ github.run_number }}"
+            echo "Generated new tag: $NEW_TAG"
+            echo "tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ---------- 4. 创建 Release ----------
+      - name: Create Release
+        if: steps.check.outputs.has_new == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: Release ${{ steps.tag.outputs.tag }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/slim/trainingmaster.dll
+            dist/slim/trainingmaster.ini
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ---------- 5. 运行摘要 ----------
+      - name: Write summary
+        if: always()
+        run: |
+          if [ "${{ steps.check.outputs.has_new }}" = "true" ]; then
+            echo "### ✅ Release published: ${{ steps.tag.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### ⏭️ No new commits since last release, skipped." >> "$GITHUB_STEP_SUMMARY"
+          fi
