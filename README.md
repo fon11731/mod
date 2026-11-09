@@ -38,7 +38,7 @@ After launching the game, press `Insert` to open the interface, or visit http://
 | Hide song visuals (Experimental) | Hide extra sprite animations, screen effects, and Live2D during practice; some effects cannot be removed |
 | Gauge | Override the gauge type and initial value |
 
-![alt text](QQ_1794197750947.png)
+![alt text](index.png)
 
 ## Third-Party Components
 
