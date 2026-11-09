@@ -23,7 +23,7 @@ After launching the game, press `Insert` to open the interface, or visit http://
 ## Features
 
 > [!NOTE]
-> When these features are enabled, scores will not be uploaded or recorded. To change this, modify the "Autoplay & Upload Policy" option, or set "Autoplay & Upload Policy" (three levels) in the WebUI.
+> When these features are enabled, scores will be uploaded and recorded by default. To prevent upload, modify the "Autoplay & Upload Policy" option, or set "Autoplay & Upload Policy" (three levels) in the WebUI.
 
 | Feature | Description |
 | --- | --- |
