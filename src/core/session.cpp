@@ -1,10 +1,20 @@
 #include "core/session.hpp"
 #include "core/playback_rate.hpp"
+#include "ui/preferences.hpp"
 #include <algorithm>
 #include <cmath>
 #include <utility>
 
 namespace training {
+namespace {
+// When the user explicitly allows score upload, never hold the native end /
+// result path — even if the track was marked tainted by AutoPlay.
+bool results_allowed() {
+    const auto mode = preferences().snapshot().autoplay_upload_mode;
+    return mode == AutoplayUploadMode::AutoAndUpload ||
+           mode == AutoplayUploadMode::ManualAndUpload;
+}
+}
 LoopRange loop_range(const State& s) {
     const double duration=std::max(0.,static_cast<double>(s.track.duration));
     return {static_cast<float>(std::clamp(static_cast<double>(s.in)-s.loop_before,0.,duration)),
@@ -92,8 +102,16 @@ bool Session::navigation_active() const {
             return c.generation==state_.generation && (c.action==Action::Seek || c.action==Action::ReturnToStart || c.action==Action::ScrubBy);
         });
 }
-bool Session::suppress_result() const { std::lock_guard lock(mutex_); return state_.tainted; }
-bool Session::native_exit_locked() const { std::lock_guard lock(mutex_); return state_.tainted && !state_.finish_requested; }
+bool Session::suppress_result() const {
+    std::lock_guard lock(mutex_);
+    if (results_allowed()) return false;
+    return state_.tainted;
+}
+bool Session::native_exit_locked() const {
+    std::lock_guard lock(mutex_);
+    if (results_allowed()) return false;
+    return state_.tainted && !state_.finish_requested;
+}
 void Session::result_blocked() { std::lock_guard lock(mutex_); ++state_.blocked_results; }
 void Session::camera_unavailable() {
     std::lock_guard lock(mutex_);
@@ -194,6 +212,8 @@ bool Session::update_scrub(float elapsed_seconds,Backend& b) {
 bool Session::intercept_track_end(float position,Backend& b) {
     std::lock_guard lock(mutex_);
     auto& s=state_;
+    // Upload modes must not intercept — let native finish + result run.
+    if(results_allowed()) return false;
     if(!s.playing || !s.tainted || s.finish_requested) return false;
     if(s.at_end) return true;
     bool complete{};
