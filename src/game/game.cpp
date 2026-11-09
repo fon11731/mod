@@ -390,13 +390,15 @@ void __fastcall world_update_hook(Ptr world) {
     judgment_recording=active && world==current_world && control.playing && !control.paused && !control.rewinding && !control.reversing;
     judgment_region={active && world==current_world && control.enabled && control.loop,control.in,control.out};
     
-    // 🌟 修改：强制根据策略开启或关闭 Autoplay
+    // Force AutoPlay on/off from the upload policy. Only the No-Upload policy
+    // should taint the world (block native result); upload policies must leave
+    // the native finish + score path intact.
     const auto mode = preferences().snapshot().autoplay_upload_mode;
     const bool force_autoplay = (mode == AutoplayUploadMode::AutoAndUpload || mode == AutoplayUploadMode::AutoNoUpload);
     const bool automatic=active && world==current_world && control.playing && control.enabled && force_autoplay &&
         !control.reversing && !control.rewinding && supported(world);
     
-    if (automatic) mark_tainted(world);
+    if (automatic && mode == AutoplayUploadMode::AutoNoUpload) mark_tainted(world);
     if (active && world==current_world && autoplay_ready) autoplay::update(world,automatic,original_world_update,control.autoplay_mode);
     else original_world_update(world);
     if(active && current_world==world && s_critical_flag) {
